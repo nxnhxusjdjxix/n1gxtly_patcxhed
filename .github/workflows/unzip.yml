@@ -1,16 +1,38 @@
-name: Unzip Workflow
+name: Unzip to Root
 
-on: [push]
+on:
+  push:
+    paths:
+      - 'nightly-patched.zip'
+  workflow_dispatch:          # ← enables the manual "Run workflow" button
+
+permissions:
+  contents: write
 
 jobs:
-  unzip_job:
+  unzip-and-commit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Unzip nightly-patched.zip
+      - name: Unzip
         run: unzip -qo nightly-patched.zip
 
-      # example of what you might want next:
-      - name: List extracted files
-        run: ls -la
+      - name: Move everything to repo root
+        run: |
+          shopt -s dotglob
+          mv nightly-patched/* .
+          rmdir nightly-patched
+
+      - name: Commit & push extracted files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add .
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Extract contents of nightly-patched.zip to repo root"
+            git push
+          fi
