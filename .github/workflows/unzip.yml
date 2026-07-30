@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  workflows: write
 
 jobs:
   unzip-and-commit:
@@ -34,4 +35,5 @@ jobs:
           else
             git commit -m "Extract contents of nightly-patched.zip to repo root"
             git push
+      
           fi
