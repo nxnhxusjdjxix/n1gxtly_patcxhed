@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - 'nightly-patched.zip'
-  workflow_dispatch:          # ← enables the manual "Run workflow" button
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -20,9 +20,8 @@ jobs:
 
       - name: Move everything to repo root
         run: |
-          shopt -s dotglob
-          mv nightly-patched/* .
-          rmdir nightly-patched
+          cp -a nightly-patched/. .
+          rm -rf nightly-patched
 
       - name: Commit & push extracted files
         run: |
