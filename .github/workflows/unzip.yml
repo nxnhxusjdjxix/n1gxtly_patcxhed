@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: write
-  workflows: write
 
 jobs:
   unzip-and-commit:
@@ -16,11 +15,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Unzip
-        run: unzip -qo nightly-patched.zip
-
-      - name: Move everything to repo root
+      - name: Unzip and strip workflows
         run: |
+          unzip -qo nightly-patched.zip
+          
+          # Remove the workflows from the extracted folder so Git doesn't try to commit them
+          rm -rf nightly-patched/.github/workflows/
+          
           cp -a nightly-patched/. .
           rm -rf nightly-patched
 
@@ -33,7 +34,7 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Extract contents of nightly-patched.zip to repo root"
+            git commit -m "Extract yt-dlp nightly code"
             git push
-      
+       
           fi
