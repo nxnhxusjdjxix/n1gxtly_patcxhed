@@ -298,12 +298,10 @@ class KnownPiracyIE(UnsupportedInfoExtractor):
         r'sxyprn\.com',
         r'jable\.tv',
         r'91porn\.com',
-        r'einthusan\.(?:tv|com|ca)',
         r'yourupload\.com',
         r'xanimu\.com',
         r'musicdex\.org',
         r'duboku\.io',
-        r'gofile\.io',
     )
 
     _TESTS = [{

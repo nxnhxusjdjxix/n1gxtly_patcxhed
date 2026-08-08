@@ -10,20 +10,19 @@ class PornlIE(InfoExtractor):
     _WORKING = True
     IE_DESC = 'pornl.com'
     _TESTS = [{
-        'url': 'https://pornl.com/videos/12345678/',
+        'url': 'https://pornl.com/videos/3901921/faye-reagan-in-stunning-faye-reagan-plays-hard-to-get-smutmerchants/',
         'info_dict': {
-            'id': '12345678',
+            'id': '3901921',
             'ext': 'mp4',
             'title': str,
             'age_limit': 18,
         },
-        'skip': 'Test video may not be available',
     }]
 
     # Custom base64-like alphabet used by pornl.com's app.js.
     # IMPORTANT: several letters are Cyrillic look-alikes (А В С Е М), not
     # Latin — this is intentional obfuscation by the site, not a typo here.
-    _ALPHABET = '\u0410\u0412\u0421D\u0415FGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,~'
+    _ALPHABET = '\u0410\u0412\u0421D\u0415FGHIJKL\u041cNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,~'
 
     def _base164_decode(self, encoded):
         """Decode pornl.com's custom base164 encoding to a plain string."""
@@ -109,11 +108,26 @@ class PornlIE(InfoExtractor):
 
         ext = (entry.get('format') or '.mp4').lstrip('.')
 
+        direct_format = {
+            'format_id': 'direct',
+            'url': direct_url,
+            'ext': ext,
+            'protocol': 'https',
+            'vcodec': 'unknown',
+            'acodec': 'unknown',
+            'format_note': 'Direct MP4',
+            'http_headers': {
+                'User-Agent': _ua,
+                'Referer': page_url,
+            },
+        }
+
         return {
             'id': video_id,
             'title': title,
             'url': direct_url,
             'ext': ext,
+            'formats': [direct_format],
             'thumbnails': thumbnails or None,
             'age_limit': 18,
         }

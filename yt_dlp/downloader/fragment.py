@@ -70,6 +70,8 @@ class FragmentFD(FileDownloader):
 
     def _prepare_url(self, info_dict, url):
         headers = info_dict.get('http_headers')
+        if info_dict.get('no_headers'):
+            return Request(url, extensions={'no_headers': True})
         return Request(url, None, headers) if headers else url
 
     def _prepare_and_start_frag_download(self, ctx, info_dict):
@@ -115,6 +117,7 @@ class FragmentFD(FileDownloader):
             'http_headers': headers or info_dict.get('http_headers'),
             'request_data': request_data,
             'ctx_id': ctx.get('ctx_id'),
+            'no_headers': info_dict.get('no_headers'),
         }
         frag_resume_len = 0
         if ctx['dl'].params.get('continuedl', True):

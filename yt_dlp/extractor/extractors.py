@@ -41,3 +41,15 @@ def __getattr__(name):
     if not value:
         raise AttributeError(f'module {__name__} has no attribute {name}')
     return value
+
+
+# Replit custom extractor lazy-lookup registration
+from . import _extractors as _replit_extractors
+_generic = _current.pop('GenericIE', None)
+for _name in ('StreamtapeIE', 'VidaraIE', 'VoeJessicaIE', 'HGCloudIE', 'LuluvdoIE', 'FilemoonByseIE', 'VidHideIE', 'PlaymogoIE', 'SaucePlayerIE', 'FapticaIE', 'FappTimeIE', 'BornToBeFuckIE', 'FapNutIE', 'HornyLeakIE', 'HornySimpIE', 'HotLeakIE', 'LeakPornerIE', 'OnlyChicksHubIE', 'OnlyJerkIE', 'OnlyPornIE', 'PureLeaksIE', 'RealPornClipIE', 'TheSaucelsIE', 'ThotChicksIE', 'ThotFlixIE', 'ThotsterIE', 'TittyTubeIE', 'XXVideosIE', 'ShareNudeIE', 'NSFW247IE', 'GoonityIE', 'PornlIE', 'SexvidIE', 'HotntubesIE', 'ThotPornIE', 'GofileIE', 'EinthusanIE',):
+    _custom = getattr(_replit_extractors, _name)
+    _CLASS_LOOKUP.setdefault(_name, _custom)
+    _current.setdefault(_name, _custom)
+if _generic is not None:
+    _current['GenericIE'] = _generic
+del _custom, _generic, _name, _replit_extractors

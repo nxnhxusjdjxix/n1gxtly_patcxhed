@@ -111,6 +111,8 @@ class HttpFD(FileDownloader):
                 range_end = ctx.content_len - 1
 
             request = Request(url, request_data, headers, extensions=request_extensions)
+            if info_dict.get('no_headers'):
+                request.extensions['no_headers'] = True
             has_range = range_start is not None
             if has_range:
                 request.headers['Range'] = f'bytes={int(range_start)}-{int_or_none(range_end) or ""}'

@@ -735,7 +735,7 @@ class GenericIE(InfoExtractor):
             webpage, 'flashvars name', default='flashvars')
         # combine flashvars if defined twice in if...else blocks
         flashvars = merge_dicts(*(self._search_json(
-            r'<script(?:\s[^>]*)?>[\ \S]*?%svar\s+%s\s*=' % (extra, varname),
+            r'<script(?:\s[^>]*)?>[\s\S]*?%svar\s+%s\s*=' % (extra, varname),
             webpage, 'flashvars', video_id, end_pattern=r';[\s\S]*?</script>',
             # strip non-JSON JS (adv_ keys may contain JS concat expressions)
             transform_source=lambda s: js_to_json(re.sub(
@@ -772,12 +772,24 @@ class GenericIE(InfoExtractor):
             if not formats[-1].get('height'):
                 formats[-1]['quality'] = 1
 
+        player_width = int_or_none(flashvars.get('player_width')) or int_or_none(
+            self._search_regex(r'\bplayer_width\s*:\s*[\'"]?(\d+)', webpage, 'player width', fatal=False))
+        player_height = int_or_none(flashvars.get('player_height')) or int_or_none(
+            self._search_regex(r'\bplayer_height\s*:\s*[\'"]?(\d+)', webpage, 'player height', fatal=False))
+        for format_ in formats:
+            if player_width and player_height and not format_.get('height'):
+                format_.update(width=player_width, height=player_height)
+
         return {
             'id': flashvars['video_id'],
             'display_id': display_id,
             'title': title,
             'thumbnail': urljoin(url, thumbnail),
             'formats': formats,
+            'duration': parse_duration(self._html_search_regex(
+                r'(?is)\bDuration:\s*<em>\s*([^<]+)', webpage, 'duration', fatal=False)),
+            'width': player_width,
+            'height': player_height,
         }
 
     def _real_extract(self, url):

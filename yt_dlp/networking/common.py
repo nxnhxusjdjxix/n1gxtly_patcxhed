@@ -271,8 +271,9 @@ class RequestHandler(abc.ABC):
         Get headers for external use.
         Subclasses may define a _prepare_headers method to modify headers after merge but before building.
         """
-        headers = self._merge_headers(request.headers)
-        self._prepare_headers(request, headers)
+        headers = HTTPHeaderDict() if request.extensions.get('no_headers') else self._merge_headers(request.headers)
+        if not request.extensions.get('no_headers'):
+            self._prepare_headers(request, headers)
         if request.extensions.get('keep_header_casing'):
             return headers.sensitive()
         return dict(headers)
@@ -333,6 +334,7 @@ class RequestHandler(abc.ABC):
     def _check_extensions(self, extensions):
         """Check extensions for unsupported extensions. Subclasses should extend this."""
         assert isinstance(extensions.get('cookiejar'), (YoutubeDLCookieJar, NoneType))
+        extensions.pop('no_headers', None)
         assert isinstance(extensions.get('timeout'), (float, int, NoneType))
         assert isinstance(extensions.get('legacy_ssl'), (bool, NoneType))
         assert isinstance(extensions.get('keep_header_casing'), (bool, NoneType))
