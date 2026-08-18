@@ -94,6 +94,26 @@ class TheSaucelsIE(SaucePlayerIE):
             webpage, 'SaucePlayer URL')
         return self._extract_sauceplayer(player_url, url, video_id, title, thumbnail)
 
+
+class SauceSenpaiIE(SaucePlayerIE):
+    """Extract SauceSenpai pages through SaucePlayer embeds."""
+    _VALID_URL = r'https?://(?:www\.)?saucesenpai\.com/(?:[^/?#]+/)*(?P<id>[^/?#]+)/?(?:[?#].*)?$'
+    IE_DESC = 'SauceSenpai SaucePlayer pages'
+
+    def _real_extract(self, url):
+        video_id = self._match_id(url)
+        webpage = self._download_webpage(
+            url, video_id, headers=self._headers(self._downloader, url))
+
+        title = (
+            self._html_search_meta(('og:title', 'twitter:title'), webpage, 'title', default=None)
+            or self._html_extract_title(webpage, default=video_id))
+        thumbnail = self._html_search_meta('og:image', webpage, 'thumbnail', default=None)
+        player_url = self._search_regex(
+            r'<iframe\b[^>]*\bsrc=["\'](https?://sauceplayer\.co/e/[^"\']+)',
+            webpage, 'SaucePlayer URL')
+        return self._extract_sauceplayer(player_url, url, video_id, title, thumbnail)
+
 class XXVideosIE(CommonVideoProviderIE):
     """Extract XX Videos pages through their goofy-banana → Jessica player."""
 

@@ -75,6 +75,7 @@ class SaucePlayerIE(CommonVideoPlayerIE):
     """Extract SaucePlayer pages and dispatch their decrypted providers."""
 
     _VALID_URL = r'https?://(?:www\.)?sauceplayer\.co/e/(?P<id>[A-Za-z0-9_-]+)'
+    _EMBED_REGEX = [r'(?P<url>https?://(?:www\.)?sauceplayer\.co/e/[A-Za-z0-9_-]+)']
     IE_DESC = 'SaucePlayer multi-source embeds'
 
     def _real_extract(self, url):

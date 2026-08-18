@@ -248,7 +248,7 @@ class CommonVideoProviderIE(InfoExtractor):
         return ''.join(out)
 
     @classmethod
-    def _decode_jessica(cls, encoded):
+    def _decode_voe_config(cls, encoded):
         value = cls._rot13(encoded)
         markers = ('@$', '^^', '~@', '%?', '*~', '!!', '#&')
         candidates = [value]
@@ -267,38 +267,31 @@ class CommonVideoProviderIE(InfoExtractor):
                 continue
             if isinstance(config, dict) and url_or_none(config.get('source')):
                 return config
-        raise ValueError('no valid Jessica source configuration found')
+        raise ValueError('no valid VOE source configuration found')
 
-    @classmethod
-    def _jessica_url(cls, voe_url):
-        video_id = urlsplit(voe_url).path.rstrip('/').rsplit('/', 1)[-1]
-        if not re.fullmatch(r'[A-Za-z0-9_-]+', video_id):
-            return None
-        return f'https://jessicachoosemake.com/e/{video_id}'
-
-    def _extract_jessica(self, page_url, video_id, referer):
+    def _extract_voe_mirror(self, page_url, video_id, referer):
         webpage = self._download_webpage(
             page_url, video_id, headers=self._headers(self._downloader, referer))
         encoded = self._search_regex(
-            r'<script\b[^>]*type=["\']application/json["\'][^>]*>([^<]+)</script>',
-            webpage, 'Jessica configuration', flags=re.IGNORECASE | re.DOTALL)
+            r'<script\b[^>]*type=["\']application/json["\'][^>]*>(.*?)</script>',
+            webpage, 'VOE mirror configuration', flags=re.IGNORECASE | re.DOTALL)
         wrapper = self._parse_json(encoded, video_id)
         if isinstance(wrapper, list):
             wrapper = wrapper[0] if wrapper else None
         if not isinstance(wrapper, str):
-            raise ExtractorError('Jessica returned an invalid configuration')
+            raise ExtractorError('VOE mirror returned an invalid configuration')
         try:
-            config = self._decode_jessica(wrapper)
+            config = self._decode_voe_config(wrapper)
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
-            raise ExtractorError(f'Unable to decode Jessica configuration: {exc}') from exc
+            raise ExtractorError(f'Unable to decode VOE mirror configuration: {exc}') from exc
         source = url_or_none(config.get('source'))
         if not source:
-            raise ExtractorError('Jessica did not expose an HLS source')
+            raise ExtractorError('VOE mirror did not expose an HLS source')
         formats, subtitles = self._extract_m3u8_formats_and_subtitles(
-            source, video_id, ext='mp4', m3u8_id='jessica',
+            source, video_id, ext='mp4', m3u8_id='voe-mirror',
             headers=self._headers(self._downloader, page_url), fatal=False)
         if not formats:
-            raise ExtractorError('Jessica HLS source returned no formats')
+            raise ExtractorError('VOE mirror HLS source returned no formats')
         duration = self._apply_hls_format_metadata(
             formats, video_id, self._headers(self._downloader, page_url))
         return {
@@ -310,24 +303,26 @@ class CommonVideoProviderIE(InfoExtractor):
         }
 
     def _extract_voe(self, voe_url, video_id, referer):
-        try:
-            result = self._download_webpage_handle(
-                voe_url, video_id,
-                headers=self._headers(self._downloader, referer), fatal=False)
-        except ExtractorError:
-            result = None
-        if result:
-            webpage, response = result
-            final_url = response.url
-            if 'jessica' in (urlsplit(final_url).hostname or '').lower():
-                try:
-                    return self._extract_jessica(final_url, video_id, referer)
-                except Exception:
-                    pass
-        candidate = self._jessica_url(voe_url)
-        if not candidate:
-            raise ExtractorError(f'Voe URL has no usable Jessica ID: {voe_url}')
-        return self._extract_jessica(candidate, video_id, referer)
+        # Keep the initial request fatal, matching native yt-dlp behavior.
+        # In particular, let HTTP 403/429 errors reach the app's generic
+        # challenge detector instead of replacing them with a provider-specific
+        # "unable to resolve" error.
+        result = self._download_webpage_handle(
+            voe_url, video_id,
+            headers=self._headers(self._downloader, referer))
+
+        webpage, response = result
+        final_url = response.url
+        mirror_errors = []
+        for page_url in (final_url, voe_url):
+            try:
+                return self._extract_voe_mirror(page_url, video_id, referer)
+            except Exception as exc:
+                mirror_errors.append(exc)
+
+        if mirror_errors:
+            raise mirror_errors[-1]
+        raise ExtractorError('Unable to resolve VOE mirror configuration')
 
     def _extract_vidara(self, vidara_url, video_id, referer):
         embed_id = urlsplit(vidara_url).path.rstrip('/').rsplit('/', 1)[-1]
@@ -656,8 +651,90 @@ class CommonVideoProviderIE(InfoExtractor):
 
 
 
+    def _extract_mixdrop(self, embed_url, video_id, referer=None):
+        """Extract MixDrop progressive MP4 from packed MDCore player config."""
+        headers = self._headers(
+            self._downloader, referer or embed_url,
+            'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8')
+        webpage = self._download_webpage(
+            embed_url, video_id, headers=headers)
+        # MixDrop rotates hosts; follow any meta refresh / JS location if present
+        unpacked = None
+        try:
+            unpacked = self._unpack_hanerix(webpage)
+        except ExtractorError:
+            # Alternate packer form used by some MixDrop mirrors
+            match = re.search(
+                r"eval\(function\(p,a,c,k,e,d\)\{.*?\}\('(?P<p>(?:\\.|[^'])*)',"
+                r'(?P<a>\d+),(?P<c>\d+),'
+                r"'(?P<k>(?:\\.|[^'])*)'\.split\('\|'\),0,\{\}\)\)",
+                webpage, re.DOTALL)
+            if not match:
+                raise ExtractorError('MixDrop packed player configuration not found')
+            try:
+                payload = codecs.decode(match.group('p'), 'unicode_escape')
+                base = int(match.group('a'))
+                count = int(match.group('c'))
+                words = match.group('k').split('|')
+            except (UnicodeDecodeError, ValueError) as exc:
+                raise ExtractorError(f'Unable to read MixDrop player pack: {exc}') from exc
+            for index in range(count - 1, -1, -1):
+                if index < len(words) and words[index]:
+                    payload = re.sub(
+                        rf'\b{re.escape(self._js_base(index, base))}\b',
+                        words[index], payload)
+            unpacked = payload
+
+        wurl = self._search_regex(
+            r'(?:MDCore\.)?wurl\s*=\s*["\']([^"\']+)["\']',
+            unpacked, 'MixDrop media URL', default=None)
+        if not wurl:
+            wurl = self._search_regex(
+                r'["\']wurl["\']\s*:\s*["\']([^"\']+)["\']',
+                unpacked, 'MixDrop media URL')
+        if wurl.startswith('//'):
+            wurl = 'https:' + wurl
+        elif wurl.startswith('/'):
+            wurl = urljoin(embed_url, wurl)
+        media_headers = self._headers(self._downloader, embed_url, '*/*')
+        format_item = {
+            'format_id': 'mixdrop',
+            'url': wurl,
+            'ext': determine_ext(wurl, 'mp4'),
+            'http_headers': media_headers,
+        }
+        # Optional HEAD for filesize
+        response = self._request_webpage(
+            HEADRequest(wurl), video_id,
+            note='Checking MixDrop media metadata', fatal=False,
+            headers=media_headers)
+        if response is not None:
+            filesize = int_or_none(response.headers.get('Content-Length'))
+            if filesize:
+                format_item['filesize'] = filesize
+        thumbnail = self._search_regex(
+            r'(?:MDCore\.)?poster\s*=\s*["\']([^"\']+)["\']',
+            unpacked, 'thumbnail', default=None)
+        if thumbnail and thumbnail.startswith('//'):
+            thumbnail = 'https:' + thumbnail
+        title = self._html_search_meta(
+            ('og:title', 'twitter:title'), webpage, 'title', default=None)
+        if not title:
+            title = self._search_regex(
+                r'<title[^>]*>([^<]+)</title>', webpage, 'page title',
+                default=video_id)
+        return {
+            'id': video_id,
+            'title': title,
+            'thumbnail': url_or_none(thumbnail),
+            'formats': [format_item],
+            'age_limit': 18,
+        }
+
+
 class StreamtapeIE(CommonVideoProviderIE):
     _VALID_URL = r'https?://(?:www\.)?streamtape\.com/e/(?P<id>[A-Za-z0-9]+)'
+    _EMBED_REGEX = [r'(?P<url>https?://(?:www\.)?streamtape\.com/e/[A-Za-z0-9]+)']
     IE_DESC = 'Streamtape videos'
 
     def _real_extract(self, url):
@@ -676,9 +753,10 @@ class VidaraIE(CommonVideoProviderIE):
         video_id = self._match_id(url)
         return self._extract_vidara(url, video_id, url)
 
-class VoeJessicaIE(CommonVideoProviderIE):
+class VoeIE(CommonVideoProviderIE):
     _VALID_URL = r'https?://(?:www\.)?voe\.sx/e/(?P<id>[A-Za-z0-9_-]+)'
-    IE_DESC = 'Voe videos through the Jessica mirror'
+    _EMBED_REGEX = [r'(?P<url>https?://(?:www\.)?voe\.sx/e/[A-Za-z0-9_-]+)']
+    IE_DESC = 'VOE videos with browser-discovered mirror support'
 
     def _real_extract(self, url):
         video_id = self._match_id(url)
@@ -687,8 +765,27 @@ class VoeJessicaIE(CommonVideoProviderIE):
         result.setdefault('age_limit', 18)
         return result
 
+class VoeMirrorIE(CommonVideoProviderIE):
+    """Explicit extractor for a mirror URL resolved from a VOE page.
+
+    This class deliberately is not registered in yt-dlp's automatic extractor
+    lookup because its URL pattern is intentionally host-agnostic. The app
+    invokes it only for a URL returned by the VOE browser fallback.
+    """
+
+    _VALID_URL = r'https?://(?P<host>[^/?#]+)/(?:e|v|embed)/(?P<id>[A-Za-z0-9_-]+)'
+    IE_DESC = 'VOE mirror pages using the shared player configuration'
+
+    def _real_extract(self, url):
+        video_id = self._match_id(url)
+        result = self._extract_voe_mirror(url, video_id, url)
+        result['id'] = video_id
+        result.setdefault('age_limit', 18)
+        return result
+
 class HGCloudIE(CommonVideoProviderIE):
     _VALID_URL = r'https?://(?:www\.)?hgcloud\.to/e/(?P<id>[A-Za-z0-9_-]+)'
+    _EMBED_REGEX = [r'(?P<url>https?://(?:www\.)?hgcloud\.to/e/[A-Za-z0-9_-]+)']
     IE_DESC = 'HGCloud videos through Hanerix'
 
     def _real_extract(self, url):
@@ -698,8 +795,15 @@ class HGCloudIE(CommonVideoProviderIE):
         return result
 
 class LuluvdoIE(CommonVideoProviderIE):
-    _VALID_URL = r'https?://(?:www\.)?luluvdo\.com/e/(?P<id>[A-Za-z0-9_-]+)'
-    IE_DESC = 'Luluvdo videos'
+    _VALID_URL = (
+        r'https?://(?:www\.)?(?:luluvdo\.com|luluvid\.com|lulustream\.com|'
+        r'luluvdoo\.com)/e/(?P<id>[A-Za-z0-9_-]+)'
+    )
+    _EMBED_REGEX = [
+        r'(?P<url>https?://(?:www\.)?(?:luluvdo\.com|luluvid\.com|lulustream\.com|'
+        r'luluvdoo\.com)/e/[A-Za-z0-9_-]+)',
+    ]
+    IE_DESC = 'LuluStream / Luluvdo / Luluvid videos'
 
     def _real_extract(self, url):
         video_id = self._match_id(url)
@@ -710,6 +814,9 @@ class LuluvdoIE(CommonVideoProviderIE):
 
 class FilemoonByseIE(CommonVideoProviderIE):
     _VALID_URL = r'https?://(?:www\.)?(?:filemoon\.[^/]+|byse[^./]*\.[^/]+)/e/(?P<id>[A-Za-z0-9_-]+)'
+    _EMBED_REGEX = [
+        r'(?P<url>https?://(?:www\.)?(?:filemoon\.[^/]+|byse[^./]*\.[^/]+)/e/[A-Za-z0-9_-]+)',
+    ]
     IE_DESC = 'Filemoon and Byse videos'
 
     def _real_extract(self, url):
@@ -721,6 +828,7 @@ class FilemoonByseIE(CommonVideoProviderIE):
 
 class VidHideIE(CommonVideoProviderIE):
     _VALID_URL = r'https?://(?:www\.)?sauceplayer\.com/embed/(?P<id>[A-Za-z0-9_-]+)'
+    _EMBED_REGEX = [r'(?P<url>https?://(?:www\.)?sauceplayer\.com/embed/[A-Za-z0-9_-]+)']
     IE_DESC = 'VidHide embeds served through SaucePlayer'
 
     def _real_extract(self, url):
@@ -731,10 +839,42 @@ class VidHideIE(CommonVideoProviderIE):
         return result
 
 class PlaymogoIE(CommonVideoProviderIE):
-    _VALID_URL = r'https?://(?:www\.)?playmogo\.com/(?:d|e)/(?P<id>[A-Za-z0-9_-]+)'
-    IE_DESC = 'Playmogo/DoodStream videos'
+    _VALID_URL = (
+        r'https?://(?:www\.)?(?:playmogo\.com|doply\.net|dood(?:stream)?\.'
+        r'(?:to|watch|so|pm|wf|re|sh|ws|yt|li|la|one|tech|info|online))/'
+        r'(?:d|e)/(?P<id>[A-Za-z0-9_-]+)'
+    )
+    _EMBED_REGEX = [
+        r'(?P<url>https?://(?:www\.)?(?:playmogo\.com|doply\.net|dood(?:stream)?\.'
+        r'(?:to|watch|so|pm|wf|re|sh|ws|yt|li|la|one|tech|info|online))/'
+        r'(?:d|e)/[A-Za-z0-9_-]+)',
+    ]
+    IE_DESC = 'Playmogo / DoodStream / Doply videos'
 
     def _real_extract(self, url):
         video_id = self._match_id(url)
         return self._extract_playmogo(url, video_id)
+
+class MixDropIE(CommonVideoProviderIE):
+    _VALID_URL = (
+        r'https?://(?:www\.)?(?:mixdrop\.(?:ag|to|co|si|bz|ch|my|club|ps)|'
+        r'm[1i]xdrop\.(?:[a-z0-9]+)|mdy[a-z0-9]+\.com|miiixdrop\.net)/'
+        r'[ef]/(?P<id>[A-Za-z0-9]+)'
+    )
+    _EMBED_REGEX = [
+        r'(?P<url>https?://(?:www\.)?(?:mixdrop\.(?:ag|to|co|si|bz|ch|my|club|ps)|'
+        r'm[1i]xdrop\.[a-z0-9]+|mdy[a-z0-9]+\.com|miiixdrop\.net)/'
+        r'[ef]/[A-Za-z0-9]+)',
+    ]
+    IE_DESC = 'MixDrop videos'
+
+    def _real_extract(self, url):
+        video_id = self._match_id(url)
+        # Normalize to embed path when given /f/
+        if '/f/' in url:
+            url = re.sub(r'/f/', '/e/', url, count=1)
+        result = self._extract_mixdrop(url, video_id, url)
+        result['id'] = video_id
+        result.setdefault('age_limit', 18)
+        return result
 

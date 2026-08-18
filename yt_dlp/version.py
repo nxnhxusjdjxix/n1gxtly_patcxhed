@@ -4,12 +4,12 @@ __version__ = '2026.08.04.234419'
 
 RELEASE_GIT_HEAD = '5d6b8c8cd19785c3086ae3a9ec618c45e25eb3bc'
 
-VARIANT = 'pip'
+VARIANT = None
 
-UPDATE_HINT = 'You installed yt-dlp with pip or using the wheel from PyPi; Use that to update'
+UPDATE_HINT = None
 
-CHANNEL = 'nightly'
+CHANNEL = 'stable'
 
-ORIGIN = 'yt-dlp/yt-dlp-nightly-builds'
+ORIGIN = 'yt-dlp/yt-dlp'
 
 _pkg_version = '2026.08.04.234419dev'

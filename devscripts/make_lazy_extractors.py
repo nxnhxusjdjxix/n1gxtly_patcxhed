@@ -80,8 +80,10 @@ def build_ies(ies, bases, attr_base):
 
 def sort_ies(ies, ignored_bases):
     """find the correct sorting and add the required base classes so that subclasses can be correctly created"""
-    classes, returned_classes = ies[:-1], set()
-    assert ies[-1].__name__ == 'GenericIE', 'Last IE must be GenericIE'
+    generic_ie = ies[-1]
+    classes, returned_classes = ies[:-1], {generic_ie}
+    assert generic_ie.__name__ == 'GenericIE', 'Last IE must be GenericIE'
+    yield generic_ie
     while classes:
         for c in classes[:]:
             bases = set(c.__bases__) - {object, *ignored_bases}
@@ -98,7 +100,6 @@ def sort_ies(ies, ignored_bases):
                 returned_classes.add(c)
                 classes.remove(c)
                 break
-    yield ies[-1]
 
 
 def build_lazy_ie(ie, name, attr_base):
